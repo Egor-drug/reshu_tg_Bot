@@ -1,6 +1,6 @@
 import os
 from database import SessionLocal, User, BroadCast
-fromChatComplete.generate import generate
+from generate import generate
 from aiogram import F, Router,Bot
 from aiogram.filters import CommandStart,Command
 from aiogram.enums import ContentType
