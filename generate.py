@@ -1,22 +1,16 @@
-from openai import AsyncOpenAI
-from config import AI_TOKEN
+import requests
 
-client = AsyncOpenAI(
-  base_url="https://openrouter.ai/api/v1",
-  api_key=AI_TOKEN,
-)
-async def generate(text:str):
 
-  completion = await client.chat.completions.create(
+async def generate(text: str):
+    """Максимально простой вариант"""
 
-  model="deepseek/deepseek-chat",
-  messages=[
-       {
-          "role": "user",
-          "content": text
-       }
-     ]
-  )
-  print(completion.choices[0].message.content)
-  return completion.choices[0].message.content
+    try:
+        url = f"https://text.pollinations.ai/{text}"
+        response = requests.get(url, timeout=30)
 
+        if response.status_code == 200:
+            return response.text
+        else:
+            return "❌ Сервис временно недоступен"
+    except:
+        return "❌ Ошибка. Попробуйте позже."
