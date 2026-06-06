@@ -4,7 +4,7 @@ import asyncio
 import re
 from config import AI_TOKEN
 
-OPENROUTER_API_KEY = AI_TOKEN
+OPENROUTER_API_KEY = f'sk{AI_TOKEN}'
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 # ⚡ БЫСТРАЯ МОДЕЛЬ
