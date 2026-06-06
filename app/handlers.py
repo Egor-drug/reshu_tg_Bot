@@ -1,12 +1,12 @@
 import os
-from ChatComplete.database import SessionLocal, User, BroadCast
-from ChatComplete.generate import generate
+from database import SessionLocal, User, BroadCast
+from generate import generate
 from aiogram import F, Router, Bot
 from aiogram.filters import CommandStart, Command
 from aiogram.enums import ContentType
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.types import Message, CallbackQuery, LabeledPrice, PreCheckoutQuery, BufferedInputFile
-from ChatComplete.config import TOKEN, ADMIN_ID
+from config import TOKEN, ADMIN_ID
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
