@@ -1,4 +1,6 @@
 import os
+import base64
+import random
 from database import SessionLocal, User, BroadCast
 from generate import generate
 from aiogram import F, Router, Bot
@@ -6,7 +8,7 @@ from aiogram.filters import CommandStart, Command
 from aiogram.enums import ContentType
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.types import Message, CallbackQuery, LabeledPrice, PreCheckoutQuery, BufferedInputFile
-from config import TOKEN, ADMIN_ID
+from config import TOKEN, ADMIN_ID,AI_TOKEN
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from datetime import datetime
@@ -38,9 +40,10 @@ payment = InlineKeyboardMarkup(inline_keyboard=[
 
 def admin_main_menu():
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📊 Статистика", callback_data='stats')],
+        [InlineKeyboardButton(text="📊‍ Статистика", callback_data='stats')],
         [InlineKeyboardButton(text='✉️ Рассылка', callback_data='broadcast')],
-        [InlineKeyboardButton(text='⚙️ Доп настройки', callback_data='settings')]
+        [InlineKeyboardButton(text='⚙️ Доп настройки', callback_data='settings')],
+        [InlineKeyboardButton(text='👤Пользователи',callback_data='users_data')]
     ])
     return keyboard
 
@@ -180,6 +183,25 @@ async def back_menu(callback: CallbackQuery):
     await callback.message.answer("", reply_markup=admin_main_menu())
     await callback.answer()
 
+@router.callback_query(F.data == 'users_data')
+async def send_user_list(callback: CallbackQuery):
+    db = SessionLocal()
+    users = db.query(User).all()
+    db.close()
+
+    if not users:
+        await callback.answer("📭 Нет пользователей")
+        return
+
+    text = "👥 Список пользователей:\n\n"
+    for user in users:
+        name = user.name if user.name else "Без имени"
+        status = "✅" if user.active else "❌"
+        premium = "⭐" if user.premium else ""
+        text += f"{status} {premium} {user.telegram_id} | {name}\n"
+
+    await callback.message.answer(text)
+    await callback.answer()
 
 @router.callback_query(F.data == 'stats')
 async def stats_process(callback: CallbackQuery):
@@ -503,23 +525,61 @@ async def generating_picture(message: Message, state: FSMContext):
     prompt = message.text.strip()
     thinking_msg = await message.answer("🎨 Генерирую изображение... Подождите немного")
 
+    # ---- Попытка №1: OpenRouter (дешёвая модель) ----
     try:
-        img_url = f"https://image.pollinations.ai/prompt/{prompt}?width=1024&height=1024"
-        img_response = requests.get(img_url, timeout=60)
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {AI_TOKEN}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": "black-forest-labs/flux.2-klein-4b",
+                "messages": [{"role": "user", "content": prompt}],
+                "modalities": ["image"]
+            },
+            timeout=30
+        )
+        if response.status_code == 200:
+            result = response.json()
+            images = result.get("choices", [{}])[0].get("message", {}).get("images", [])
+            if images:
+                image_url = images[0]["image_url"]["url"]   # data:image/png;base64,...
+                if image_url.startswith("data:image"):
+                    base64_data = image_url.split(",", 1)[1]
+                    image_bytes = base64.b64decode(base64_data)
+                    await message.answer_photo(
+                        BufferedInputFile(image_bytes, "image.png"),
+                        caption=f'<b>Ваш промпт:</b> {prompt}\n\n✅ Изображение сгенерировано (OpenRouter)!\n💎 Premium функция',
+                        parse_mode='HTML',
+                        reply_markup=main_menu_settings()
+                    )
+                    await thinking_msg.delete()
+                    await state.clear()
+                    return
+    except Exception as e:
+        print(f"OpenRouter error: {e}")
 
+    # ---- Попытка №2: Pollinations.ai (бесплатный резерв) ----
+    # Добавляем случайный seed, чтобы обойти временные кэши/лимиты
+    try:
+        img_url = f"https://image.pollinations.ai/prompt/{prompt}?width=1024&height=1024&seed={random.randint(1, 1000000)}"
+        img_response = requests.get(img_url, timeout=60)
         if img_response.status_code == 200:
             await message.answer_photo(
                 BufferedInputFile(img_response.content, "image.png"),
-                caption=f'<b>Ваш промпт:</b> {prompt}\n\n✅ Изображение сгенерировано!\n💎 Premium функция',
+                caption=f'<b>Ваш промпт:</b> {prompt}\n\n✅ Изображение сгенерировано (Pollinations)!\n💎 Premium функция',
                 parse_mode='HTML',
                 reply_markup=main_menu_settings()
             )
             await thinking_msg.delete()
+            await state.clear()
+            return
         else:
-            await thinking_msg.edit_text("❌ Не удалось сгенерировать изображение. Попробуйте другой промпт.")
+            await thinking_msg.edit_text("❌ Не удалось сгенерировать изображение (оба сервиса недоступны).")
     except Exception as e:
-        print(f"Ошибка генерации: {e}")
-        await thinking_msg.edit_text("❌ Ошибка генерации. Попробуйте позже.")
+        print(f"Pollinations error: {e}")
+        await thinking_msg.edit_text("❌ Ошибка генерации. Попробуйте другой промпт позже.")
 
     await state.clear()
 
