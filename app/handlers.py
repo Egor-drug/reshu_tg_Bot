@@ -618,6 +618,82 @@ async def profile(callback: CallbackQuery):
 
     await callback.message.answer(f'{text_bot}', parse_mode='HTML', reply_markup=main_menu_settings())
 
+@router.message(F.photo)
+async def handle_photo(message: Message, state: FSMContext):
+    """Обработка фото с заданиями"""
+    
+    # Проверка на Premium (если нужно)
+    db = SessionLocal()
+    user = db.query(User).filter(User.telegram_id == str(message.from_user.id)).first()
+    is_premium = user.premium if user else False
+    db.close()
+    
+    # Если распознавание фото только для Premium
+    if not is_premium and message.from_user.id != ADMIN_ID:
+        await message.answer(
+            '❌ **Распознавание текста с фото доступно только с Premium подпиской!**\n\n'
+            '💎 Приобретите Premium в меню настроек (⭐ Stars)',
+            parse_mode='Markdown'
+        )
+        return
+    
+    # Отправляем сообщение о начале обработки
+    thinking_msg = await message.answer("📸 **Обрабатываю фото...**\n🔄 Распознаю текст...")
+    
+    try:
+        # Получаем фото в максимальном качестве
+        photo = message.photo[-1]
+        file_info = await bot.get_file(photo.file_id)
+        file_path = file_info.file_path
+        
+        # Скачиваем фото
+        downloaded_file = await bot.download_file(file_path)
+        
+        # Сохраняем временно
+        temp_path = f"temp_{message.from_user.id}.jpg"
+        with open(temp_path, "wb") as f:
+            f.write(downloaded_file.getvalue())
+        
+        # Распознаем текст через OCR
+        await thinking_msg.edit_text("📖 **Распознаю текст с фото...**\n⏳ Пожалуйста, подождите")
+        
+        recognized_text = await ocr_space_file(temp_path)
+        
+        # Удаляем временный файл
+        os.remove(temp_path)
+        
+        if not recognized_text or len(recognized_text.strip()) < 3:
+            await thinking_msg.edit_text(
+                "❌ **Не удалось распознать текст на фото.**\n\n"
+                "📌 Попробуйте:\n"
+                "• Сделать фото более четким\n"
+                "• Отправить задание текстом\n"
+                "• Улучшить освещение"
+            )
+            return
+        
+        # Показываем распознанный текст
+        await thinking_msg.edit_text(
+            f"✅ **Текст распознан!**\n\n"
+            f"📝 **Распознанный текст:**\n`{recognized_text[:300]}{'...' if len(recognized_text) > 300 else ''}`\n\n"
+            f"🤔 **Что делать дальше?**\n"
+            f"Напишите 'да' или выберите режим ответа:",
+            parse_mode='Markdown',
+            reply_markup=mode_selection_keyboard()
+        )
+        
+        # Сохраняем распознанный текст в состояние
+        await state.update_data(recognized_text=recognized_text)
+        
+    except Exception as e:
+        print(f"Ошибка при обработке фото: {e}")
+        await thinking_msg.edit_text(
+            "❌ **Произошла ошибка при обработке фото.**\n\n"
+            "Попробуйте:\n"
+            "• Отправить задание текстом\n"
+            "• Отправить фото с лучшим качеством\n"
+            "• Попробовать позже"
+        )
 
 # ========== ОБРАБОТКА ТЕКСТОВЫХ ЗАДАНИЙ ==========
 @router.message(F.text)
